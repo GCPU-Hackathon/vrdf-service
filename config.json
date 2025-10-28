@@ -1,0 +1,31 @@
+{
+  "transfer_function": {
+    "labels": {
+      "0": {
+        "name": "background",
+        "color": [0.0, 0.0, 0.0],
+        "alpha": 0.0
+      },
+      "1": {
+        "name": "Brain",
+        "color": [0.8, 0.8, 0.8],
+        "alpha": 0.1
+      },
+      "2": {
+        "name": "Enhancing tumor",
+        "color": [0.0, 1.0, 0.0],
+        "alpha": 0.4
+      },
+      "3": {
+        "name": "Core tumor",
+        "color": [0.0, 0.0, 1.0],
+        "alpha": 0.5
+      },
+      "4": {
+        "name": "Glioma",
+        "color": [1.0, 1.0, 0.0],
+        "alpha": 1.0
+      }
+    }
+  }
+}

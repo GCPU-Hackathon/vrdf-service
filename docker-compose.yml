@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  vrdf-service:
+    build:
+      context: .
+      args:
+        WWWUSER: 1000
+        WWWGROUP: 1000
+    container_name: vrdf-service
+    volumes:
+      - ./:/app
+      - /tmp:/tmp
+      - medical-app_studies-data:/app/storage/studies:consistent
+    ports:
+      - "8001:8000"
+    networks:
+      - holonauts-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+networks:
+  holonauts-network:
+    name: holonauts-network
+    external: true
+    driver: bridge
+
+volumes:
+  medical-app_studies-data:
+    external: true
