@@ -1,19 +1,20 @@
 # VRDF Service
 
-A FastAPI service for converting NIfTI medical imaging files to VRDF format for Unity DVR rendering.
+A FastAPI service for converting NIfTI medical imaging files to VRDF format for Unity DVR rendering with mandatory segmentation.
 
 ## Overview
 
-This service provides a REST API to convert NIfTI files (.nii/.nii.gz) to VRDF format using different conversion modes. It's designed to work with study-based file organization and supports background processing for large file conversions.
+This service provides a REST API to convert NIfTI files (.nii/.nii.gz) to VRDF format specifically for BraTS-style medical data. It performs segmentation followed by VRDF conversion in a single streamlined process, designed for study-based file organization.
 
 ## Features
 
-- **REST API**: Easy-to-use HTTP endpoints for file conversion
-- **Background Processing**: Non-blocking conversion with task status tracking
+- **REST API**: Simple synchronous HTTP endpoints for file conversion
+- **Mandatory Segmentation**: Uses BraTS-style 4D segmentation before conversion
 - **Study-based Organization**: Files are organized by study codes
-- **Multiple Conversion Modes**: Support for different VRDF export modes
+- **VRDF Export**: Converts to Unity-compatible VRDF format using labelmap_weighted4d mode
 - **Health Monitoring**: Health check endpoint for service monitoring
-- **File Download**: Direct download of converted files
+- **Automatic Cleanup**: Removes intermediate segmented files after conversion
+- **Simple Workflow**: Direct response without task tracking system
 
 ## Installation
 
@@ -45,6 +46,15 @@ GET /health
 
 Returns the health status of the service.
 
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "service": "vrdf-service"
+}
+```
+
 ### Convert File
 
 ```
@@ -55,9 +65,9 @@ POST /convert
 
 ```json
 {
-  "study_code": "study123",
-  "filename": "brain_scan.nii.gz",
-  "mode": "labelmap_weighted4d",
+  "study_code": "patient123",
+  "filename": "patient123-t1n.nii.gz",
+  "seg_filename": "patient123-seg.nii.gz",
   "config_path": "./config.json"
 }
 ```
@@ -67,27 +77,10 @@ POST /convert
 ```json
 {
   "success": true,
-  "message": "Conversion started",
-  "task_id": "uuid-task-id",
-  "output_file": "/path/to/output.vrdf"
+  "message": "Segmentation and conversion completed for patient123-t1n.nii.gz",
+  "vrdf_file": "patient123-t1n_lw.vrdf"
 }
 ```
-
-### Get Task Status
-
-```
-GET /convert/status/{task_id}
-```
-
-Returns the current status of a conversion task.
-
-### Download Converted File
-
-```
-GET /download/{task_id}
-```
-
-Downloads the converted VRDF file once the conversion is complete.
 
 ## File Organization
 
@@ -97,17 +90,18 @@ The service expects files to be organized as follows:
 storage/
   studies/
     {study_code}/
-      {filename}.nii.gz
-      vrdf_output/
-        {filename}_converted.vrdf
+      {filename}.nii.gz           # Input modality file
+      {seg_filename}.nii.gz       # Segmentation mask file
+      {filename}_lw.vrdf          # Generated VRDF output
 ```
 
-## Conversion Modes
+## Process Flow
 
-- `labelmap`: Single discrete volume
-- `continuous4d`: Continuous volumes (MRI/CT), split along T
-- `labelmap_weighted4d`: Labels + tumor weights (fused or split)
-- `multi_overlay4d`: One overlay .vrdf per channel
+1. **Input Validation**: Validates that both input NIfTI file and segmentation file exist in the study directory
+2. **Segmentation Processing**: Creates 4D segmented volume using BraTS-style processing (brain regions + tumor labels)
+3. **VRDF Conversion**: Converts the segmented 4D volume to Unity-compatible VRDF format using labelmap_weighted4d mode
+4. **Automatic Cleanup**: Removes intermediate segmented .nii.gz files to save disk space
+5. **Direct Response**: Returns the final VRDF filename immediately (no task tracking)
 
 ## Configuration
 
@@ -133,57 +127,47 @@ The service uses a JSON configuration file (`config.json`) to define transfer fu
 
 ## Usage Examples
 
-### Using the Python Client
-
-```python
-from client_example import VRDFClient
-
-client = VRDFClient("http://localhost:8000")
-
-# Check service health
-if client.health_check():
-    # Convert a file
-    result, status = client.convert_file("study123", "brain_scan.nii.gz")
-
-    if status == 200:
-        task_id = result['task_id']
-
-        # Wait for completion
-        final_status = client.wait_for_completion(task_id)
-
-        if final_status['status'] == 'completed':
-            # Download the result
-            client.download_file(task_id, "output.vrdf")
-```
-
 ### Using curl
 
 ```bash
 # Health check
 curl http://localhost:8000/health
 
-# Start conversion
+# Convert file with segmentation
 curl -X POST http://localhost:8000/convert \
   -H "Content-Type: application/json" \
   -d '{
-    "study_code": "study123",
-    "filename": "brain_scan.nii.gz",
-    "mode": "labelmap_weighted4d"
+    "study_code": "patient123",
+    "filename": "patient123-t1n.nii.gz",
+    "seg_filename": "patient123-seg.nii.gz",
+    "config_path": "./config.json"
   }'
-
-# Check status
-curl http://localhost:8000/convert/status/{task_id}
-
-# Download file
-curl -O http://localhost:8000/download/{task_id}
 ```
 
-## Original Command Line Tool
+### Using Python
 
-The original encode.py script can still be used directly:
+```python
+import requests
 
-```bash
-python encode.py --nifti INPUT_FILE --mode labelmap_weighted4d --config config.json --vrdf-out OUTPUT_FILE
+# Health check
+response = requests.get("http://localhost:8000/health")
+print(response.json())
+
+# Convert file
+data = {
+    "study_code": "patient123",
+    "filename": "patient123-t1n.nii.gz",
+    "seg_filename": "patient123-seg.nii.gz",
+    "config_path": "./config.json"
+}
+
+response = requests.post("http://localhost:8000/convert", json=data)
+result = response.json()
+
+if result["success"]:
+    print(f"VRDF file created: {result['vrdf_file']}")
+else:
+    print(f"Conversion failed: {result['message']}")
 ```
 
 ## Docker Support
@@ -195,18 +179,53 @@ The service includes Docker configuration for easy deployment:
 - **External network**: Connects to `holonauts-network`
 - **Volume mounting**: Maps study data from external volume
 
-## Testing
-
-Run the test script to verify the service is working:
-
 ```bash
-python test_service.py
+# Build and run with Docker Compose
+docker-compose up --build
+
+# Or run manually
+docker build -t vrdf-service .
+docker run -p 8000:8000 -v /path/to/storage:/app/storage vrdf-service
 ```
+
+## Error Handling
+
+The service provides detailed error messages for common issues:
+
+- **File not found**: When input NIfTI or segmentation files don't exist
+- **Invalid study code**: When the study directory is not accessible
+- **Segmentation failures**: When the 4D segmentation process fails
+- **VRDF conversion errors**: When the encoding process encounters issues
+
+## Performance Notes
+
+- The segmentation and VRDF conversion process is CPU-intensive
+- Large NIfTI files may take several minutes to process
+- Intermediate files are automatically cleaned up to conserve disk space
+- The service processes requests synchronously (one at a time)
 
 ## Dependencies
 
-- FastAPI: Web framework
-- uvicorn: ASGI server
-- nibabel: NIfTI file handling
-- numpy: Numerical operations
-- pydantic: Data validation
+- **FastAPI**: Web framework for the REST API
+- **uvicorn**: ASGI server for serving the application
+- **nibabel**: NIfTI file reading and writing
+- **numpy**: Numerical operations for medical imaging data
+- **pydantic**: Data validation and request/response models
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Import errors**: Ensure the `encode.py` module is in the correct path
+2. **File permissions**: Check that the service has read/write access to the storage directory
+3. **Memory issues**: Large NIfTI files may require sufficient RAM for processing
+4. **Path issues**: Verify that study directories and files exist before making requests
+
+### Logs
+
+The service logs important events including:
+
+- File processing start/completion
+- Error details with stack traces
+- Cleanup operations
+- Performance timing information
